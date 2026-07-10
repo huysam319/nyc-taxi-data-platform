@@ -219,5 +219,11 @@ __marimo__/
 
 # Data
 storage/landing/*
+storage/bronze/*
+storage/silver/*
+storage/gold/*
 
 !storage/landing/.gitkeep
+!storage/bronze/.gitkeep
+!storage/silver/.gitkeep
+!storage/gold/.gitkeep

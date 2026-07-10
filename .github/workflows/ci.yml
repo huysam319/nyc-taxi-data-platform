@@ -13,4 +13,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install lint tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install black ruff
+
+      - name: Check formatting
+        run: |
+          black --check $(git ls-files '*.py')
+
+      - name: Run lint
+        run: |
+          ruff check $(git ls-files '*.py')
+
       - run: echo "CI is working!"

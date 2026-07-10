@@ -1,0 +1,18 @@
+[tool.black]
+line-length = 88
+target-version = ["py312"]
+extend-exclude = '''
+/(\
+		airflow/logs\
+	| lakehouse\
+	| storage\
+)/
+'''
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+exclude = ["airflow/logs", "lakehouse", "storage"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
