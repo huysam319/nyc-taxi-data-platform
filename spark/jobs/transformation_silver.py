@@ -137,8 +137,8 @@ def transform_bronze_to_silver(
     start_time = time.time()
     active_batch_id = (
         batch_id
-        or f"silver-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-" \
-            f"{uuid4().hex[:8]}"
+        or f"silver-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-"
+        f"{uuid4().hex[:8]}"
     )
 
     bronze_partitions = _extract_bronze_partitions(bronze_dir)
@@ -158,7 +158,7 @@ def transform_bronze_to_silver(
     for year, month in bronze_partitions:
         if _is_already_transformed(silver_dir, year, month):
             logger.info(
-                "status=SKIP_PARTITION batch_id=%s partition='year=%d/month=%d' " \
+                "status=SKIP_PARTITION batch_id=%s partition='year=%d/month=%d' "
                 "reason='Already exists in Silver'",
                 active_batch_id,
                 year,
@@ -192,7 +192,7 @@ def transform_bronze_to_silver(
 
         partition_duration = time.time() - partition_start_time
         logger.info(
-            "status=FINISHED_PARTITION batch_id=%s partition='year=%d/month=%d' " \
+            "status=FINISHED_PARTITION batch_id=%s partition='year=%d/month=%d' "
             "duration_sec=%.2f records_written=%d",
             active_batch_id,
             year,
@@ -203,7 +203,7 @@ def transform_bronze_to_silver(
 
     job_duration = time.time() - start_time
     logger.info(
-        "status=SUCCESS_SILVER batch_id=%s total_duration_sec=%.2f " \
+        "status=SUCCESS_SILVER batch_id=%s total_duration_sec=%.2f "
         "total_records_written=%d partitions_skipped=%d",
         active_batch_id,
         job_duration,

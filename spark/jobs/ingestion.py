@@ -1,7 +1,7 @@
 """Ingest yellow tripdata parquet files from landing into bronze.
 
-The job normalizes the NYC yellow taxi schema (pre-2015), quarantines schema-violating 
-rows, and preserves valid rows in Bronze. It includes a check to skip already ingested 
+The job normalizes the NYC yellow taxi schema (pre-2015), quarantines schema-violating
+rows, and preserves valid rows in Bronze. It includes a check to skip already ingested
 year/month data.
 """
 
@@ -55,7 +55,7 @@ def _parse_year_month(file_path: Path) -> tuple[int, int]:
 
 
 def _is_already_ingested(bronze_dir: Path, year: int, month: int) -> bool:
-    """KIỂM TRA ĐIỀU KIỆN: Xác định xem phân vùng dữ liệu của year/month 
+    """KIỂM TRA ĐIỀU KIỆN: Xác định xem phân vùng dữ liệu của year/month
     đã tồn tại ở Bronze chưa."""
     # Khớp chính xác với cấu trúc thư mục mà Spark .partitionBy("year", "month") tạo ra
     partition_path = bronze_dir / f"year={year}" / f"month={month}"
@@ -260,7 +260,7 @@ def ingest_yellow_tripdata(
         # ÁP DỤNG ĐIỀU KIỆN KIỂM TRA: Nếu đã được kết nạp rồi thì bỏ qua không xử lý lại
         if _is_already_ingested(bronze_dir, year, month):
             logger.info(
-                "status=SKIP_FILE batch_id=%s file=%s reason='Year=%d Month=%d " \
+                "status=SKIP_FILE batch_id=%s file=%s reason='Year=%d Month=%d "
                 "already exists in Bronze'",
                 active_batch_id,
                 file_path.name,
@@ -328,7 +328,7 @@ def ingest_yellow_tripdata(
     job_duration = time.time() - start_time
 
     logger.info(
-        "status=SUCCESS batch_id=%s total_duration_sec=%.2f total_clean_records=%d " \
+        "status=SUCCESS batch_id=%s total_duration_sec=%.2f total_clean_records=%d "
         "total_schema_violations=%d files_skipped=%d",
         active_batch_id,
         job_duration,
