@@ -97,6 +97,45 @@ PY
 """
 )
 
+# -------------------------------------------------------------------------
+# 3. SNIPPET PYTHON CHO BƯỚC TRANSFORMATION GOLD (STAR SCHEMA MODELING)
+# -------------------------------------------------------------------------
+GOLD_PYTHON_SNIPPET = (
+    r"""
+python - <<'PY'
+import os
+import shlex
+import subprocess
+
+def env(name: str, default: str) -> str:
+    return os.environ.get(name, default)
+
+command = shlex.split(env("GOLD_COMMAND", """
+    + f'"{SPARK_SUBMIT_BASE}"'
+    + r"""))
+script = env("GOLD_APP", "/opt/spark-apps/jobs/transformation_gold.py")
+
+args = [
+    "--silver-dir", env("GOLD_SILVER_DIR", "/storage/silver/trip"),
+    "--lookup-file", env("GOLD_LOOKUP_FILE", "/storage/reference/taxi_zone_lookup.csv"),
+    "--gold-dir", env("GOLD_GOLD_DIR", "/storage/gold"),
+]
+
+# Thêm tham số phân vùng động tương tự tầng Silver để xử lý tối ưu
+year = env("GOLD_YEAR", "")
+month = env("GOLD_MONTH", "")
+if year and year != "None":
+    args.extend(["--year", year])
+if month and month != "None":
+    args.extend(["--month", month])
+
+full_command = command + [script] + args
+print("Running Gold Data Modeling:", " ".join(full_command))
+subprocess.run(full_command, check=True)
+PY
+"""
+)
+
 
 with DAG(
     "yellow_tripdata_pipeline",
@@ -156,15 +195,29 @@ with DAG(
                 "{{ ((dag_run.conf or {}).get('silver_dir')) "
                 + "or '/storage/silver/trip' }}"
             ),
-            # # Lấy thông số Year/Month linh hoạt dựa trên cấu hình Trigger
-            # "SILVER_YEAR": (
-            #     "{{ ((dag_run.conf or {}).get('year')) or '2015' }}"
-            # ),
-            # "SILVER_MONTH": (
-            #     "{{ ((dag_run.conf or {}).get('month')) or '1' }}"
-            # ),
+        },
+    )
+
+    # TASK 3: TRANSFORMATION GOLD (Silver -> Gold Data Marts)
+    transform_gold = BashOperator(
+        task_id="transform_yellow_tripdata_gold",
+        bash_command=GOLD_PYTHON_SNIPPET,
+        env={
+            "GOLD_COMMAND": "{{ (dag_run.conf or {}).get('gold_command') or '"
+            + SPARK_SUBMIT_BASE
+            + "' }}",
+            "GOLD_APP": "{{ (dag_run.conf or {}).get('gold_app') "
+            "or '/opt/spark-apps/jobs/transformation_gold.py' }}",
+            "GOLD_SILVER_DIR": "{{ (dag_run.conf or {}).get('silver_dir') "
+            "or '/storage/silver/trip' }}",
+            "GOLD_LOOKUP_FILE": "{{ (dag_run.conf or {}).get('lookup_file') "
+            "or '/storage/reference/taxi_zone_lookup.csv' }}",
+            "GOLD_GOLD_DIR": "{{ (dag_run.conf or {}).get('gold_dir') "
+            "or '/storage/gold' }}",
+            "GOLD_YEAR": "{{ (dag_run.conf or {}).get('year') }}",
+            "GOLD_MONTH": "{{ (dag_run.conf or {}).get('month') }}",
         },
     )
 
     # Thiết lập thứ tự chạy tuần tự: Ingest xong mới Transform Silver
-    ingest_tripdata >> transform_silver
+    ingest_tripdata >> transform_silver >> transform_gold

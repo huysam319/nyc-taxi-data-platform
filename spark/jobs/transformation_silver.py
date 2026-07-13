@@ -156,7 +156,7 @@ def transform_single_partition(
 
     if _is_already_transformed(silver_dir, year, month):
         logger.info(
-            "status=SKIP_PARTITION batch_id=%s partition='year=%d/month=%d' " \
+            "status=SKIP_PARTITION batch_id=%s partition='year=%d/month=%d' "
             "reason='Already exists in Silver'",
             batch_id,
             year,
@@ -192,7 +192,7 @@ def transform_bronze_to_silver(
     silver_dir: Path = DEFAULT_SILVER_DIR,
     batch_id: str | None = None,
 ):
-    """Điều phối xử lý: Nhận trực tiếp cặp năm/tháng từ Airflow 
+    """Điều phối xử lý: Nhận trực tiếp cặp năm/tháng từ Airflow
     hoặc tự động quét toàn thư mục."""
     start_time = time.time()
     active_batch_id = (
@@ -228,7 +228,7 @@ def transform_bronze_to_silver(
 
     job_duration = time.time() - start_time
     logger.info(
-        "status=SUCCESS_SILVER batch_id=%s total_duration_sec=%.2f " \
+        "status=SUCCESS_SILVER batch_id=%s total_duration_sec=%.2f "
         "partitions_processed=%d",
         active_batch_id,
         job_duration,
@@ -251,7 +251,7 @@ def main() -> None:
     parser.add_argument("--bronze-dir", type=Path, default=DEFAULT_BRONZE_DIR)
     parser.add_argument("--silver-dir", type=Path, default=DEFAULT_SILVER_DIR)
 
-    # Cho phép nhận vào year và month tùy chọn từ Airflow, không bắt buộc 
+    # Cho phép nhận vào year và month tùy chọn từ Airflow, không bắt buộc
     # (required=False) để có thể quét tự động khi chạy tay
     parser.add_argument("--year", type=int, required=False, default=None)
     parser.add_argument("--month", type=int, required=False, default=None)
