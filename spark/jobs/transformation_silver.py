@@ -13,10 +13,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+# Cấu hình logging cơ bản nếu chạy độc lập
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
+)
+logger = logging.getLogger(__name__)
+
 DEFAULT_BRONZE_DIR = Path("/storage/bronze/trip")
 DEFAULT_SILVER_DIR = Path("/storage/silver/trip")
-
-logger = logging.getLogger(__name__)
 
 
 def _spark_modules():
@@ -53,12 +57,18 @@ def _extract_bronze_partitions(bronze_dir: Path) -> list[tuple[int, int]]:
     return sorted(partitions)
 
 
-def _clean_and_enrich_data(df):
+def _clean_and_enrich_data(df, year: int, month: int):
     """Thực hiện các quy tắc làm sạch dữ liệu và tạo thêm tính năng (Enrichment)."""
     F = _spark_modules()
 
+    # Thêm thủ công cột tĩnh 'year', 'month' và 'batch_id'
+    # (Do gộp chung luồng hoặc đọc trực tiếp từng phân vùng nên cần ép nhãn dữ liệu)
+    df_with_bounds = df.withColumn("year", F.lit(year)).withColumn(
+        "month", F.lit(month)
+    )
+
     # 1. Bộ lọc làm sạch dữ liệu (Data Cleansing Rules)
-    cleaned_df = df.filter(
+    cleaned_df = df_with_bounds.filter(
         (F.col("passenger_count") > 0)
         & (F.col("trip_distance") > 0.0)
         & (F.col("fare_amount") >= 0.0)
@@ -91,9 +101,14 @@ def _clean_and_enrich_data(df):
     return final_df
 
 
-def _project_silver_columns(frame):
+def _project_silver_columns(frame, batch_id: str):
     """Lựa chọn cấu trúc schema chuẩn hóa cuối cùng cho tầng Silver."""
     F = _spark_modules()
+
+    # Kiểm tra kiểm soát các cột ảo đặc thù nếu chưa có sẵn trong frame nguồn
+    if "schema_family" not in frame.columns:
+        frame = frame.withColumn("schema_family", F.lit("yellow_tripdata"))
+
     return frame.select(
         "vendor_id",
         "vendor_name",
@@ -120,20 +135,65 @@ def _project_silver_columns(frame):
         "airport_fee",
         "total_amount",
         "schema_family",
-        "batch_id",
+        F.lit(batch_id).alias("batch_id"),
         "year",
         "month",
         F.current_timestamp().alias("transformed_at"),
     )
 
 
+def transform_single_partition(
+    spark, year: int, month: int, bronze_dir: Path, silver_dir: Path, batch_id: str
+) -> bool:
+    """Xử lý xử lý duy nhất một phân vùng cụ thể (Hàm lõi an toàn RAM)."""
+    partition_bronze_path = bronze_dir / f"year={year}" / f"month={month}"
+
+    if not partition_bronze_path.exists():
+        logger.warning(
+            "Partition not found in bronze directory: %s", partition_bronze_path
+        )
+        return False
+
+    if _is_already_transformed(silver_dir, year, month):
+        logger.info(
+            "status=SKIP_PARTITION batch_id=%s partition='year=%d/month=%d' " \
+            "reason='Already exists in Silver'",
+            batch_id,
+            year,
+            month,
+        )
+        return False
+
+    logger.info(
+        "status=PROCESSING_PARTITION batch_id=%s partition='year=%d/month=%d'",
+        batch_id,
+        year,
+        month,
+    )
+
+    # Đọc - Biến đổi - Ghi trực tiếp (Pipeline luồng không cache giúp tránh OOM)
+    bronze_df = spark.read.parquet(str(partition_bronze_path))
+    silver_enriched_df = _clean_and_enrich_data(bronze_df, year, month)
+    silver_final_df = _project_silver_columns(silver_enriched_df, batch_id)
+
+    # Chia nhỏ dữ liệu phân vùng đích để tránh phình dung lượng RAM khi thực thi ghi đĩa
+    silver_final_df = silver_final_df.repartition(4)
+
+    partition_silver_path = silver_dir / f"year={year}" / f"month={month}"
+    silver_final_df.write.mode("overwrite").parquet(str(partition_silver_path))
+    return True
+
+
 def transform_bronze_to_silver(
     spark,
+    year: int | None = None,
+    month: int | None = None,
     bronze_dir: Path = DEFAULT_BRONZE_DIR,
     silver_dir: Path = DEFAULT_SILVER_DIR,
     batch_id: str | None = None,
 ):
-    """Đọc dữ liệu từ Bronze, làm sạch, biến đổi cấu trúc và ghi xuống Silver."""
+    """Điều phối xử lý: Nhận trực tiếp cặp năm/tháng từ Airflow 
+    hoặc tự động quét toàn thư mục."""
     start_time = time.time()
     active_batch_id = (
         batch_id
@@ -141,123 +201,79 @@ def transform_bronze_to_silver(
         f"{uuid4().hex[:8]}"
     )
 
-    bronze_partitions = _extract_bronze_partitions(bronze_dir)
-    if not bronze_partitions:
-        logger.warning("No partitions found in bronze directory: %s", bronze_dir)
+    # Quyết định danh sách phân vùng cần xử lý
+    if year is not None and month is not None:
+        target_partitions = [(year, month)]
+    else:
+        logger.info("No specific partition provided. Scanning bronze directory...")
+        target_partitions = _extract_bronze_partitions(bronze_dir)
+
+    if not target_partitions:
+        logger.warning("No partitions to process for bronze directory: %s", bronze_dir)
         return {"partitions_processed": 0, "batch_id": active_batch_id}
 
     logger.info(
-        "status=START_SILVER_TRANSFORMATION batch_id=%s partitions_found=%d",
+        "status=START_SILVER_TRANSFORMATION batch_id=%s total_partitions=%d",
         active_batch_id,
-        len(bronze_partitions),
+        len(target_partitions),
     )
 
-    total_records_written = 0
-    partitions_skipped = 0
-
-    for year, month in bronze_partitions:
-        if _is_already_transformed(silver_dir, year, month):
-            logger.info(
-                "status=SKIP_PARTITION batch_id=%s partition='year=%d/month=%d' "
-                "reason='Already exists in Silver'",
-                active_batch_id,
-                year,
-                month,
-            )
-            partitions_skipped += 1
-            continue
-
-        partition_start_time = time.time()
-        logger.info(
-            "status=PROCESSING_PARTITION batch_id=%s partition='year=%d/month=%d'",
-            active_batch_id,
-            year,
-            month,
+    partitions_processed_count = 0
+    for y, m in target_partitions:
+        success = transform_single_partition(
+            spark, y, m, bronze_dir, silver_dir, active_batch_id
         )
-
-        partition_bronze_path = bronze_dir / f"year={year}" / f"month={month}"
-        bronze_df = spark.read.parquet(str(partition_bronze_path))
-
-        silver_enriched_df = _clean_and_enrich_data(bronze_df)
-        silver_final_df = _project_silver_columns(silver_enriched_df)
-
-        silver_final_df.cache()
-        records_count = silver_final_df.count()
-        total_records_written += records_count
-
-        silver_final_df.write.mode("append").partitionBy("year", "month").parquet(
-            str(silver_dir)
-        )
-        silver_final_df.unpersist()
-
-        partition_duration = time.time() - partition_start_time
-        logger.info(
-            "status=FINISHED_PARTITION batch_id=%s partition='year=%d/month=%d' "
-            "duration_sec=%.2f records_written=%d",
-            active_batch_id,
-            year,
-            month,
-            partition_duration,
-            records_count,
-        )
+        if success:
+            partitions_processed_count += 1
 
     job_duration = time.time() - start_time
     logger.info(
-        "status=SUCCESS_SILVER batch_id=%s total_duration_sec=%.2f "
-        "total_records_written=%d partitions_skipped=%d",
+        "status=SUCCESS_SILVER batch_id=%s total_duration_sec=%.2f " \
+        "partitions_processed=%d",
         active_batch_id,
         job_duration,
-        total_records_written,
-        partitions_skipped,
+        partitions_processed_count,
     )
 
     return {
         "batch_id": active_batch_id,
-        "partitions_processed": len(bronze_partitions) - partitions_skipped,
-        "records_written": total_records_written,
+        "partitions_processed": partitions_processed_count,
         "job_duration_sec": job_duration,
     }
-
-
-def build_argument_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Transform data from Bronze to Silver layer"
-    )
-    parser.add_argument("--bronze-dir", type=Path, default=DEFAULT_BRONZE_DIR)
-    parser.add_argument("--silver-dir", type=Path, default=DEFAULT_SILVER_DIR)
-    parser.add_argument(
-        "--app-name", type=str, default="nyc-taxi-silver-transformation"
-    )
-    parser.add_argument("--batch-id", type=str, default=None)
-    return parser
 
 
 def main() -> None:
     from pyspark.sql import SparkSession  # pyright: ignore[reportMissingImports]
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    parser = argparse.ArgumentParser(
+        description="Transform yellow tripdata into silver"
     )
+    parser.add_argument("--bronze-dir", type=Path, default=DEFAULT_BRONZE_DIR)
+    parser.add_argument("--silver-dir", type=Path, default=DEFAULT_SILVER_DIR)
 
-    parser = build_argument_parser()
+    # Cho phép nhận vào year và month tùy chọn từ Airflow, không bắt buộc 
+    # (required=False) để có thể quét tự động khi chạy tay
+    parser.add_argument("--year", type=int, required=False, default=None)
+    parser.add_argument("--month", type=int, required=False, default=None)
     args = parser.parse_args()
 
+    # Khởi tạo Spark Session tối ưu bộ nhớ đệm
     spark = (
-        SparkSession.builder.appName(args.app_name)
-        .config("spark.sql.shuffle.partitions", "32")
-        .config("spark.default.parallelism", "32")
+        SparkSession.builder.appName("yellow-taxi-silver-transformation")
+        .config("spark.sql.shuffle.partitions", "4")
         .config("spark.sql.adaptive.enabled", "true")
+        .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
         .getOrCreate()
     )
+
     try:
-        metrics = transform_bronze_to_silver(
+        transform_bronze_to_silver(
             spark=spark,
             bronze_dir=args.bronze_dir,
             silver_dir=args.silver_dir,
-            batch_id=args.batch_id,
+            year=args.year,
+            month=args.month,
         )
-        print(metrics)
     finally:
         spark.stop()
 

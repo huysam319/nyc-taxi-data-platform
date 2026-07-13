@@ -286,9 +286,6 @@ def ingest_yellow_tripdata(
 
         valid_frame, invalid_frame = _split_valid_and_invalid(normalized)
 
-        valid_frame.cache()
-        invalid_frame.cache()
-
         file_records = valid_frame.count()
         file_violations = invalid_frame.count()
 
@@ -310,9 +307,6 @@ def ingest_yellow_tripdata(
         invalid_to_write.write.mode("append").partitionBy("year", "month").parquet(
             str(quarantine_dir / "schema_violations")
         )
-
-        valid_frame.unpersist()
-        invalid_frame.unpersist()
 
         file_duration = time.time() - file_start_time
         logger.info(
@@ -372,7 +366,7 @@ def main() -> None:
         .config("spark.sql.shuffle.partitions", "8")
         .config("spark.default.parallelism", "8")
         .config("spark.sql.adaptive.enabled", "true")
-        .config("spark.sql.files.maxPartitionBytes", "128MB")
+        .config("spark.sql.files.maxPartitionBytes", "32MB")
         .getOrCreate()
     )
     try:
