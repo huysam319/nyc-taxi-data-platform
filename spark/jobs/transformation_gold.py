@@ -133,8 +133,10 @@ def transform_silver_to_gold(
 ):
     """Hàm điều phối pipeline từ Silver sang Gold."""
     start_time = time.time()
-    active_batch_id = batch_id or f"gold-{datetime.now(timezone.utc).
-            strftime('%Y%m%dT%H%M%SZ')}-{uuid4().hex[:8]}"
+    active_batch_id = batch_id or (
+        f"gold-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-"
+        f"{uuid4().hex[:8]}"
+    )
 
     # Bước A: Xây dựng hoặc cập nhật bảng danh mục Dimension cố định
     if lookup_file.exists():
