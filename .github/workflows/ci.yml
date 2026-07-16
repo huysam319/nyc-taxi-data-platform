@@ -48,12 +48,17 @@ jobs:
 
       - run: echo "CI is working!"
 
-  build_image:
+  build_images:
     needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    
+    strategy:
+      matrix:
+        service: [streamlit, airflow]
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -68,20 +73,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Metadata for Docker
+      - name: Extract Metadata for ${{ matrix.service }}
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}/nyc-taxi-analytics
+          images: ghcr.io/${{ github.repository }}/nyc-taxi-${{ matrix.service }}
           tags: |
             type=ref,event=branch
             type=sha,format=short
 
-      - name: Build and Push Docker Image
+      - name: Build and Push ${{ matrix.service }} Image
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./Dockerfile
+          file: ./${{ matrix.service }}/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
