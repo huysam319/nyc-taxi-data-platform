@@ -332,7 +332,9 @@ def test_integration_pipeline_e2e(spark, tmp_path):
             21.8,
         )
     ]
-    spark.createDataFrame(bronze_data, bronze_schema).write.parquet(str(partition_path))
+    spark.createDataFrame(bronze_data, bronze_schema).write.mode("overwrite").parquet(
+        str(partition_path)
+    )
 
     # 2. RUN STEP 1: Bronze -> Silver
     batch_id_silver = "test-silver-batch"
