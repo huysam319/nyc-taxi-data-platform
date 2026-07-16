@@ -111,6 +111,7 @@ services:
 
     volumes:
       - ./streamlit:/app
+      - ./storage:/storage
 
     environment:
       POSTGRES_HOST: postgres

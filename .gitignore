@@ -222,6 +222,7 @@ storage/landing/*
 storage/bronze/*
 storage/silver/*
 storage/gold/*
+storage/reference/*
 
 !storage/landing/.gitkeep
 !storage/bronze/.gitkeep

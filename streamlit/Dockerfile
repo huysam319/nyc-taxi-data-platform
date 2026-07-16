@@ -7,12 +7,12 @@ WORKDIR /app
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential \
+    && apt-get install -y --no-install-recommends openjdk-17-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /app/requirements.txt
 
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir streamlit pandas psycopg2-binary
+RUN pip install --no-cache-dir streamlit pyspark==3.5.6 plotly pandas 
 
 COPY . /app
 
